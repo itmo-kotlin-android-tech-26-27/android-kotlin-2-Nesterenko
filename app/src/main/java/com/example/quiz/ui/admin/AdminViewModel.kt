@@ -13,6 +13,7 @@ import com.example.quiz.domain.Attempt
 import com.example.quiz.domain.TestSettings
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,7 +22,7 @@ import kotlinx.coroutines.withContext
 
 data class AdminUiState(
     val settings: TestSettings? = null,
-    val attempts: List<IndexedValue<Attempt>> = emptyList(),
+    val attempts: List<Attempt> = emptyList(),
     val isBusy: Boolean = false,
     val message: String? = null,
     val isError: Boolean = false
@@ -69,7 +70,8 @@ class AdminViewModel(
         val minutes = minutesText.toIntOrNull()
         val questions = questionsText.toIntOrNull()
 
-        if (minutes == null || minutes <= 0 ||
+        if (
+            minutes == null || minutes <= 0 ||
             questions == null || questions <= 0
         ) {
             _uiState.value = _uiState.value.copy(
@@ -91,10 +93,10 @@ class AdminViewModel(
         }
     }
 
-    fun deleteAttempt(index: Int) {
+    fun deleteAttempt(id: UUID) {
         runOperation("Попытка удалена") {
             withContext(Dispatchers.IO) {
-                check(attemptRepository.deleteAttempt(index)) {
+                check(attemptRepository.deleteAttempt(id)) {
                     "Попытка не найдена"
                 }
             }
@@ -159,9 +161,8 @@ class AdminViewModel(
 
             val attempts = attemptRepository
                 .loadAttempts()
-                .withIndex()
                 .sortedByDescending {
-                    it.value.startedAt
+                    it.startedAt
                 }
 
             settings to attempts

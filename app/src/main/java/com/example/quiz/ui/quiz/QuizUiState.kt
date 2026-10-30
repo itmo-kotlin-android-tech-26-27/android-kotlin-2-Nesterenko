@@ -16,6 +16,6 @@ data class QuizUiState(
     val isFinished: Boolean = false,
     val isInterrupted: Boolean = false,
     val isTimeExpired: Boolean = false,
-    val savedAttemptIndex: Int? = null,
+    val savedAttemptId: String? = null,
     val errorMessage: String? = null
 )

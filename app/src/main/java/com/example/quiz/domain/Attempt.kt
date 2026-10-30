@@ -1,6 +1,8 @@
+
 package com.example.quiz.domain
 
 import java.time.LocalDateTime
+import java.util.UUID
 
 data class Attempt(
     val studentLogin: String,
@@ -9,7 +11,8 @@ data class Attempt(
     val startedAt: LocalDateTime = LocalDateTime.now(),
     var finishedAt: LocalDateTime? = null,
     var status: AttemptStatus = AttemptStatus.IN_PROGRESS,
-    val answers: MutableList<AnswerRecord> = mutableListOf()
+    val answers: MutableList<AnswerRecord> = mutableListOf(),
+    val id: UUID = UUID.randomUUID()
 ) {
 
     val correctAnswers: Int
@@ -33,29 +36,20 @@ data class Attempt(
     val answeredCount: Int
         get() = answers.size
 
-    fun addAnswer(
-        answer: AnswerRecord
-    ) {
+    fun addAnswer(answer: AnswerRecord) {
         answers.add(answer)
     }
 
-    fun finish(
-        newStatus: AttemptStatus
-    ) {
+    fun finish(newStatus: AttemptStatus) {
         status = newStatus
         finishedAt = LocalDateTime.now()
     }
 
     fun getTopicResults(): List<TopicAttemptResult> {
         return answers
-            .groupBy { answer ->
-                answer.topicId
-            }
+            .groupBy { answer -> answer.topicId }
             .map { (topicId, topicAnswers) ->
-                createTopicResult(
-                    topicId = topicId,
-                    answers = topicAnswers
-                )
+                createTopicResult(topicId, topicAnswers)
             }
     }
 
@@ -63,23 +57,19 @@ data class Attempt(
         topicId: Long,
         answers: List<AnswerRecord>
     ): TopicAttemptResult {
-        val topicName =
-            answers.first().topicName
+        val topicName = answers.first().topicName
 
-        val correctAnswers =
-            answers.count { answer ->
-                answer.isCorrect && !answer.timedOut
-            }
+        val correctAnswers = answers.count {
+            it.isCorrect && !it.timedOut
+        }
 
-        val wrongAnswers =
-            answers.count { answer ->
-                !answer.isCorrect && !answer.timedOut
-            }
+        val wrongAnswers = answers.count {
+            !it.isCorrect && !it.timedOut
+        }
 
-        val timeExpiredAnswers =
-            answers.count { answer ->
-                answer.timedOut
-            }
+        val timeExpiredAnswers = answers.count {
+            it.timedOut
+        }
 
         return TopicAttemptResult(
             topicId = topicId,

@@ -23,13 +23,14 @@ import com.example.quiz.ui.quiz.QuizViewModel
 import com.example.quiz.ui.quiz.QuizViewModelFactory
 import com.example.quiz.ui.report.ReportScreen
 import com.example.quiz.ui.topics.TopicsScreen
+import java.util.UUID
 
 object Routes {
     const val LOGIN = "login"
     const val TOPICS = "topics/{login}"
     const val HISTORY = "history/{login}"
     const val QUIZ = "quiz/{login}/{topicId}"
-    const val REPORT = "report/{login}/{attemptIndex}"
+    const val REPORT = "report/{login}/{attemptId}"
 
     const val ADMIN = "admin"
     const val ADMIN_BANK = "admin/bank"
@@ -48,9 +49,9 @@ object Routes {
 
     fun report(
         login: String,
-        attemptIndex: Int
+        attemptId: UUID
     ): String =
-        "report/${Uri.encode(login)}/$attemptIndex"
+        "report/${Uri.encode(login)}/$attemptId"
 }
 
 @Composable
@@ -92,11 +93,13 @@ fun QuizNavigation(
 
             TopicsScreen(
                 topics = questionRepository.getTopics(),
+
                 onTopicClick = { topic ->
                     navController.navigate(
                         Routes.quiz(login, topic.id)
                     )
                 },
+
                 onHistoryClick = {
                     navController.navigate(
                         Routes.history(login)
@@ -118,27 +121,21 @@ fun QuizNavigation(
                 .orEmpty()
 
             val attempts = runCatching {
-                attemptRepository.loadAttempts()
-            }
-                .getOrDefault(mutableListOf())
-                .withIndex()
-                .filter {
-                    it.value.studentLogin.equals(
-                        login,
-                        ignoreCase = true
-                    )
-                }
+                attemptRepository.getAttemptsForStudent(login)
+            }.getOrDefault(emptyList())
                 .sortedByDescending {
-                    it.value.startedAt
+                    it.startedAt
                 }
 
             HistoryScreen(
                 attempts = attempts,
-                onAttemptClick = { index ->
+
+                onAttemptClick = { attemptId ->
                     navController.navigate(
-                        Routes.report(login, index)
+                        Routes.report(login, attemptId)
                     )
                 },
+
                 onBackClick = {
                     navController.popBackStack()
                 }
@@ -174,14 +171,18 @@ fun QuizNavigation(
             )
 
             val navigateToReport: () -> Unit = {
-                val index = quizViewModel
+                val savedId = quizViewModel
                     .uiState
                     .value
-                    .savedAttemptIndex
+                    .savedAttemptId
 
-                if (index != null) {
+                val attemptId = runCatching {
+                    savedId?.let(UUID::fromString)
+                }.getOrNull()
+
+                if (attemptId != null) {
                     navController.navigate(
-                        Routes.report(login, index)
+                        Routes.report(login, attemptId)
                     ) {
                         popUpTo(Routes.QUIZ) {
                             inclusive = true
@@ -207,8 +208,8 @@ fun QuizNavigation(
                 navArgument("login") {
                     type = NavType.StringType
                 },
-                navArgument("attemptIndex") {
-                    type = NavType.IntType
+                navArgument("attemptId") {
+                    type = NavType.StringType
                 }
             )
         ) { entry ->
@@ -216,24 +217,26 @@ fun QuizNavigation(
                 ?.getString("login")
                 .orEmpty()
 
-            val index = entry.arguments
-                ?.getInt("attemptIndex")
-                ?: -1
+            val attemptId = runCatching {
+                entry.arguments
+                    ?.getString("attemptId")
+                    ?.let(UUID::fromString)
+            }.getOrNull()
 
             val attempt = runCatching {
-                attemptRepository.loadAttempts()
-            }
-                .getOrNull()
-                ?.getOrNull(index)
-                ?.takeIf {
-                    it.studentLogin.equals(
-                        login,
-                        ignoreCase = true
-                    )
+                attemptId?.let {
+                    attemptRepository.getAttempt(it)
                 }
+            }.getOrNull()?.takeIf {
+                it.studentLogin.equals(
+                    login,
+                    ignoreCase = true
+                )
+            }
 
             ReportScreen(
                 attempt = attempt,
+
                 onRetryClick = { topicId ->
                     navController.navigate(
                         Routes.quiz(login, topicId)
@@ -243,6 +246,7 @@ fun QuizNavigation(
                         }
                     }
                 },
+
                 onBackClick = {
                     navController.popBackStack()
                 }
@@ -260,11 +264,11 @@ fun QuizNavigation(
 
             AdminScreen(
                 viewModel = adminViewModel,
+
                 onBankClick = {
-                    navController.navigate(
-                        Routes.ADMIN_BANK
-                    )
+                    navController.navigate(Routes.ADMIN_BANK)
                 },
+
                 onLogoutClick = {
                     navController.popBackStack()
                 }
@@ -284,12 +288,15 @@ fun QuizNavigation(
                 topics = topicsResult.getOrDefault(
                     emptyList()
                 ),
+
                 questions = questionsResult.getOrDefault(
                     emptyList()
                 ),
+
                 errorMessage =
                     topicsResult.exceptionOrNull()?.message
                         ?: questionsResult.exceptionOrNull()?.message,
+
                 onBackClick = {
                     navController.popBackStack()
                 }

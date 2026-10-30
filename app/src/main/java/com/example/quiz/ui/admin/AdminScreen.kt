@@ -28,7 +28,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -37,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.quiz.ui.common.displayDate
 import com.example.quiz.ui.common.displayName
+import java.util.UUID
 
 @Composable
 fun AdminScreen(
@@ -54,12 +54,12 @@ fun AdminScreen(
         mutableStateOf("")
     }
 
-    var attemptToDelete by remember {
-        mutableStateOf<Int?>(null)
+    var attemptToDelete by rememberSaveable {
+        mutableStateOf<String?>(null)
     }
 
     var expandedAttempt by rememberSaveable {
-        mutableStateOf<Int?>(null)
+        mutableStateOf<String?>(null)
     }
 
     LaunchedEffect(state.settings) {
@@ -96,12 +96,14 @@ fun AdminScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val index = attemptToDelete
+                        val id = attemptToDelete
                         attemptToDelete = null
 
-                        if (index != null) {
+                        if (id != null) {
                             expandedAttempt = null
-                            viewModel.deleteAttempt(index)
+                            viewModel.deleteAttempt(
+                                UUID.fromString(id)
+                            )
                         }
                     }
                 ) {
@@ -172,7 +174,9 @@ fun AdminScreen(
 
                 OutlinedTextField(
                     value = minutes,
-                    onValueChange = { minutes = it },
+                    onValueChange = {
+                        minutes = it
+                    },
                     label = {
                         Text("Время на тест, минут")
                     },
@@ -188,7 +192,9 @@ fun AdminScreen(
 
                 OutlinedTextField(
                     value = maxQuestions,
-                    onValueChange = { maxQuestions = it },
+                    onValueChange = {
+                        maxQuestions = it
+                    },
                     label = {
                         Text("Максимум вопросов на тему")
                     },
@@ -283,9 +289,12 @@ fun AdminScreen(
 
             items(
                 items = state.attempts,
-                key = { it.index }
-            ) { entry ->
-                val attempt = entry.value
+                key = { attempt ->
+                    attempt.id.toString()
+                }
+            ) { attempt ->
+
+                val attemptId = attempt.id.toString()
 
                 Card(
                     modifier = Modifier.fillMaxWidth()
@@ -301,10 +310,15 @@ fun AdminScreen(
                         )
 
                         Text(attempt.topicName)
-                        Text(attempt.startedAt.displayDate())
+
+                        Text(
+                            attempt.startedAt.displayDate()
+                        )
+
                         Text(
                             "Статус: ${attempt.status.displayName()}"
                         )
+
                         Text("Баллы: ${attempt.score}")
 
                         Row(
@@ -314,15 +328,19 @@ fun AdminScreen(
                             OutlinedButton(
                                 onClick = {
                                     expandedAttempt =
-                                        if (expandedAttempt == entry.index) {
+                                        if (
+                                            expandedAttempt == attemptId
+                                        ) {
                                             null
                                         } else {
-                                            entry.index
+                                            attemptId
                                         }
                                 }
                             ) {
                                 Text(
-                                    if (expandedAttempt == entry.index) {
+                                    if (
+                                        expandedAttempt == attemptId
+                                    ) {
                                         "Свернуть"
                                     } else {
                                         "Подробнее"
@@ -332,7 +350,7 @@ fun AdminScreen(
 
                             TextButton(
                                 onClick = {
-                                    attemptToDelete = entry.index
+                                    attemptToDelete = attemptId
                                 },
                                 enabled = !state.isBusy
                             ) {
@@ -340,13 +358,15 @@ fun AdminScreen(
                             }
                         }
 
-                        if (expandedAttempt == entry.index) {
+                        if (expandedAttempt == attemptId) {
                             Text(
                                 "Правильных: ${attempt.correctAnswers}"
                             )
+
                             Text(
                                 "Неправильных: ${attempt.wrongAnswers}"
                             )
+
                             Text(
                                 "По тайм-ауту: ${attempt.timeExpiredAnswers}"
                             )
@@ -355,7 +375,9 @@ fun AdminScreen(
                                 Text("Ответов пока нет")
                             }
 
-                            attempt.answers.forEachIndexed { index, answer ->
+                            attempt.answers.forEachIndexed {
+                                    index, answer ->
+
                                 Text(
                                     text = "Вопрос ${index + 1}: " +
                                             answer.questionText,
@@ -374,9 +396,13 @@ fun AdminScreen(
                                     }
                                 )
 
-                                Text("Ответ: ${answer.studentAnswer}")
                                 Text(
-                                    "Правильный ответ: ${answer.correctAnswer}"
+                                    "Ответ: ${answer.studentAnswer}"
+                                )
+
+                                Text(
+                                    "Правильный ответ: " +
+                                            answer.correctAnswer
                                 )
                             }
                         }

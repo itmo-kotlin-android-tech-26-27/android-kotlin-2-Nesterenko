@@ -130,7 +130,8 @@ class QuizViewModel(
     }
 
     fun updateAnswer(answer: String) {
-        if (_uiState.value.isFinished ||
+        if (
+            _uiState.value.isFinished ||
             _uiState.value.isAnswerSubmitted
         ) {
             return
@@ -162,8 +163,8 @@ class QuizViewModel(
 
         try {
             val engineAnswer = convertAnswerForEngine(
-                question,
-                selectedAnswer
+                question = question,
+                answer = selectedAnswer
             )
 
             val isCorrect = currentEngine.answer(engineAnswer)
@@ -219,7 +220,8 @@ class QuizViewModel(
     }
 
     fun nextQuestion() {
-        if (!_uiState.value.isAnswerSubmitted ||
+        if (
+            !_uiState.value.isAnswerSubmitted ||
             _uiState.value.isFinished
         ) {
             return
@@ -227,7 +229,6 @@ class QuizViewModel(
 
         val currentEngine = engine ?: return
 
-        // Проверяем таймер до удаления текущего вопроса.
         if (currentEngine.remainingSeconds <= 0L) {
             currentEngine.markTimeExpired()
             finishAttempt(AttemptStatus.TIME_EXPIRED)
@@ -259,7 +260,8 @@ class QuizViewModel(
     fun refreshTime() {
         val currentEngine = engine ?: return
 
-        if (currentEngine.isFinished ||
+        if (
+            currentEngine.isFinished ||
             _uiState.value.isFinished
         ) {
             return
@@ -282,7 +284,8 @@ class QuizViewModel(
         val question = _uiState.value.currentQuestion ?: return
         val currentAttempt = attempt ?: return
 
-        if (currentAttempt.answers.any {
+        if (
+            currentAttempt.answers.any {
                 it.questionId == question.id
             }
         ) {
@@ -306,26 +309,34 @@ class QuizViewModel(
     private fun finishAttempt(status: AttemptStatus) {
         val currentAttempt = attempt ?: return
 
-        if (_uiState.value.savedAttemptIndex != null) {
+        // Не сохраняем одну попытку повторно.
+        if (_uiState.value.savedAttemptId != null) {
             return
         }
 
-        if (currentAttempt.status == AttemptStatus.IN_PROGRESS) {
+        if (
+            currentAttempt.status ==
+            AttemptStatus.IN_PROGRESS
+        ) {
             currentAttempt.finish(status)
         }
 
         try {
-            val newIndex = attemptRepository.loadAttempts().size
             attemptRepository.addAttempt(currentAttempt)
 
             _uiState.value = _uiState.value.copy(
                 isFinished = true,
                 isInterrupted =
-                    currentAttempt.status == AttemptStatus.INTERRUPTED,
+                    currentAttempt.status ==
+                            AttemptStatus.INTERRUPTED,
                 isTimeExpired =
-                    currentAttempt.status == AttemptStatus.TIME_EXPIRED,
+                    currentAttempt.status ==
+                            AttemptStatus.TIME_EXPIRED,
                 remainingSeconds =
-                    if (currentAttempt.status == AttemptStatus.TIME_EXPIRED) {
+                    if (
+                        currentAttempt.status ==
+                        AttemptStatus.TIME_EXPIRED
+                    ) {
                         0L
                     } else {
                         _uiState.value.remainingSeconds
@@ -333,7 +344,7 @@ class QuizViewModel(
                 currentQuestion = null,
                 answer = "",
                 isAnswerSubmitted = false,
-                savedAttemptIndex = newIndex,
+                savedAttemptId = currentAttempt.id.toString(),
                 errorMessage = null
             )
 
@@ -377,6 +388,7 @@ class QuizViewModel(
     ): String {
         return when (question) {
             is MultipleListQ -> question.correctAnswer
+
             is OpenQ -> question.correctAnswer
 
             is MatchParQuestion ->

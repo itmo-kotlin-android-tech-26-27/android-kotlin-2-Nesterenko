@@ -1,3 +1,4 @@
+
 package com.example.quiz.ui.history
 
 import androidx.compose.foundation.clickable
@@ -22,21 +23,28 @@ import androidx.compose.ui.unit.dp
 import com.example.quiz.domain.Attempt
 import com.example.quiz.ui.common.displayDate
 import com.example.quiz.ui.common.displayName
+import java.util.UUID
 
 @Composable
 fun HistoryScreen(
-    attempts: List<IndexedValue<Attempt>>,
-    onAttemptClick: (Int) -> Unit,
+    attempts: List<Attempt>,
+    onAttemptClick: (UUID) -> Unit,
     onBackClick: () -> Unit
 ) {
-    Scaffold(contentWindowInsets = WindowInsets.safeDrawing) { insets ->
+    Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing
+    ) { innerPadding ->
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(insets)
+                .padding(innerPadding)
                 .padding(16.dp)
         ) {
-            Text("История попыток", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                text = "История попыток",
+                style = MaterialTheme.typography.headlineSmall
+            )
 
             OutlinedButton(
                 onClick = onBackClick,
@@ -47,32 +55,54 @@ fun HistoryScreen(
 
             if (attempts.isEmpty()) {
                 Text(
-                    "Попыток пока нет",
+                    text = "Попыток пока нет",
                     modifier = Modifier.padding(top = 20.dp)
                 )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)
+                    verticalArrangement =
+                        Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(
+                        top = 12.dp,
+                        bottom = 24.dp
+                    )
                 ) {
-                    items(attempts, key = { it.index }) { entry ->
+                    items(
+                        items = attempts,
+                        key = { it.id.toString() }
+                    ) { attempt ->
+
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onAttemptClick(entry.index) }
+                                .clickable {
+                                    onAttemptClick(attempt.id)
+                                }
                         ) {
                             Column(
                                 modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                verticalArrangement =
+                                    Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    entry.value.topicName,
-                                    style = MaterialTheme.typography.titleMedium
+                                    text = attempt.topicName,
+                                    style =
+                                        MaterialTheme.typography.titleMedium
                                 )
-                                Text(entry.value.startedAt.displayDate())
-                                Text("Статус: ${entry.value.status.displayName()}")
-                                Text("Баллы: ${entry.value.score}")
+
+                                Text(
+                                    text = attempt.startedAt.displayDate()
+                                )
+
+                                Text(
+                                    text = "Статус: " +
+                                            attempt.status.displayName()
+                                )
+
+                                Text(
+                                    text = "Баллы: ${attempt.score}"
+                                )
                             }
                         }
                     }

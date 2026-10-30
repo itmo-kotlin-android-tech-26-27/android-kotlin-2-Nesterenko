@@ -1,18 +1,19 @@
+
 package com.example.quiz.data
 
 import com.example.quiz.domain.Attempt
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
 import java.io.File
+import java.util.UUID
 
 class AttemptRepository(
     private val file: File
 ) {
 
-    private val gson =
-        GsonBuilder()
-            .setPrettyPrinting()
-            .create()
+    private val gson = GsonBuilder()
+        .setPrettyPrinting()
+        .create()
 
     init {
         file.parentFile?.mkdirs()
@@ -23,37 +24,45 @@ class AttemptRepository(
             return mutableListOf()
         }
 
-        val text =
-            file.readText()
+        val text = file.readText()
 
         if (text.isBlank()) {
             return mutableListOf()
         }
 
-        val type =
-            object :
-                TypeToken<List<AttemptData>>() {}.type
+        val type = object :
+            TypeToken<List<AttemptData>>() {}.type
 
         val storedAttempts: List<AttemptData> =
-            gson.fromJson(
-                text,
-                type
-            )
+            gson.fromJson(text, type)
+                ?: return mutableListOf()
 
-        return storedAttempts
-            .map { attempt ->
-                attempt.toDomain()
-            }
+        val attempts = storedAttempts
+            .map { it.toDomain() }
             .toMutableList()
+
+        // Старым попыткам назначаем UUID
+        // и сохраняем обновлённый JSON.
+        val needsMigration = storedAttempts.any { data ->
+            data.id == null ||
+                    runCatching {
+                        UUID.fromString(data.id)
+                    }.isFailure
+        }
+
+        if (needsMigration) {
+            saveAttempts(attempts)
+        }
+
+        return attempts
     }
 
     fun saveAttempts(
         attempts: List<Attempt>
     ) {
-        val storedAttempts =
-            attempts.map { attempt ->
-                AttemptData.fromDomain(attempt)
-            }
+        val storedAttempts = attempts.map {
+            AttemptData.fromDomain(it)
+        }
 
         file.writeText(
             gson.toJson(storedAttempts)
@@ -63,19 +72,26 @@ class AttemptRepository(
     fun addAttempt(
         attempt: Attempt
     ) {
-        val attempts =
-            loadAttempts()
+        val attempts = loadAttempts()
 
         attempts.add(attempt)
 
         saveAttempts(attempts)
     }
 
+    fun getAttempt(
+        id: UUID
+    ): Attempt? {
+        return loadAttempts().firstOrNull {
+            it.id == id
+        }
+    }
+
     fun getAttemptsForStudent(
         login: String
     ): List<Attempt> {
-        return loadAttempts().filter { attempt ->
-            attempt.studentLogin.equals(
+        return loadAttempts().filter {
+            it.studentLogin.equals(
                 login,
                 ignoreCase = true
             )
@@ -83,19 +99,18 @@ class AttemptRepository(
     }
 
     fun deleteAttempt(
-        index: Int
+        id: UUID
     ): Boolean {
-        val attempts =
-            loadAttempts()
+        val attempts = loadAttempts()
 
-        if (index !in attempts.indices) {
-            return false
+        val removed = attempts.removeAll {
+            it.id == id
         }
 
-        attempts.removeAt(index)
+        if (removed) {
+            saveAttempts(attempts)
+        }
 
-        saveAttempts(attempts)
-
-        return true
+        return removed
     }
 }
