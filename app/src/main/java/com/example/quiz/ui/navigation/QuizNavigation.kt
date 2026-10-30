@@ -2,8 +2,29 @@
 package com.example.quiz.ui.navigation
 
 import android.net.Uri
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -12,6 +33,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.quiz.data.AttemptRepository
 import com.example.quiz.data.QuestionRepository
+import com.example.quiz.domain.Attempt
+import com.example.quiz.domain.Question
+import com.example.quiz.domain.Topic
 import com.example.quiz.ui.admin.AdminBankScreen
 import com.example.quiz.ui.admin.AdminScreen
 import com.example.quiz.ui.admin.AdminViewModel
@@ -24,6 +48,9 @@ import com.example.quiz.ui.quiz.QuizViewModelFactory
 import com.example.quiz.ui.report.ReportScreen
 import com.example.quiz.ui.topics.TopicsScreen
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 object Routes {
     const val LOGIN = "login"
@@ -31,7 +58,6 @@ object Routes {
     const val HISTORY = "history/{login}"
     const val QUIZ = "quiz/{login}/{topicId}"
     const val REPORT = "report/{login}/{attemptId}"
-
     const val ADMIN = "admin"
     const val ADMIN_BANK = "admin/bank"
 
@@ -41,16 +67,10 @@ object Routes {
     fun history(login: String): String =
         "history/${Uri.encode(login)}"
 
-    fun quiz(
-        login: String,
-        topicId: Long
-    ): String =
+    fun quiz(login: String, topicId: Long): String =
         "quiz/${Uri.encode(login)}/$topicId"
 
-    fun report(
-        login: String,
-        attemptId: UUID
-    ): String =
+    fun report(login: String, attemptId: UUID): String =
         "report/${Uri.encode(login)}/$attemptId"
 }
 
@@ -91,21 +111,48 @@ fun QuizNavigation(
                 ?.getString("login")
                 .orEmpty()
 
-            TopicsScreen(
-                topics = questionRepository.getTopics(),
+            var retryKey by remember {
+                mutableIntStateOf(0)
+            }
 
-                onTopicClick = { topic ->
-                    navController.navigate(
-                        Routes.quiz(login, topic.id)
-                    )
-                },
+            var loadState by remember {
+                mutableStateOf<LoadState<List<Topic>>>(
+                    LoadState.Loading
+                )
+            }
 
-                onHistoryClick = {
-                    navController.navigate(
-                        Routes.history(login)
-                    )
+            LaunchedEffect(login, retryKey) {
+                loadState = LoadState.Loading
+                loadState = loadRepository {
+                    questionRepository.getTopics()
                 }
-            )
+            }
+
+            when (val result = loadState) {
+                LoadState.Loading -> LoadingScreen()
+
+                is LoadState.Failure -> ErrorScreen(
+                    message = result.message,
+                    onRetry = { retryKey++ },
+                    onBack = {
+                        navController.popBackStack()
+                    }
+                )
+
+                is LoadState.Success -> TopicsScreen(
+                    topics = result.data,
+                    onTopicClick = { topic ->
+                        navController.navigate(
+                            Routes.quiz(login, topic.id)
+                        )
+                    },
+                    onHistoryClick = {
+                        navController.navigate(
+                            Routes.history(login)
+                        )
+                    }
+                )
+            }
         }
 
         composable(
@@ -120,26 +167,50 @@ fun QuizNavigation(
                 ?.getString("login")
                 .orEmpty()
 
-            val attempts = runCatching {
-                attemptRepository.getAttemptsForStudent(login)
-            }.getOrDefault(emptyList())
-                .sortedByDescending {
-                    it.startedAt
+            var retryKey by remember {
+                mutableIntStateOf(0)
+            }
+
+            var loadState by remember {
+                mutableStateOf<LoadState<List<Attempt>>>(
+                    LoadState.Loading
+                )
+            }
+
+            LaunchedEffect(login, retryKey) {
+                loadState = LoadState.Loading
+                loadState = loadRepository {
+                    attemptRepository
+                        .getAttemptsForStudent(login)
+                        .sortedByDescending {
+                            it.startedAt
+                        }
                 }
+            }
 
-            HistoryScreen(
-                attempts = attempts,
+            when (val result = loadState) {
+                LoadState.Loading -> LoadingScreen()
 
-                onAttemptClick = { attemptId ->
-                    navController.navigate(
-                        Routes.report(login, attemptId)
-                    )
-                },
+                is LoadState.Failure -> ErrorScreen(
+                    message = result.message,
+                    onRetry = { retryKey++ },
+                    onBack = {
+                        navController.popBackStack()
+                    }
+                )
 
-                onBackClick = {
-                    navController.popBackStack()
-                }
-            )
+                is LoadState.Success -> HistoryScreen(
+                    attempts = result.data,
+                    onAttemptClick = { attemptId ->
+                        navController.navigate(
+                            Routes.report(login, attemptId)
+                        )
+                    },
+                    onBackClick = {
+                        navController.popBackStack()
+                    }
+                )
+            }
         }
 
         composable(
@@ -223,34 +294,66 @@ fun QuizNavigation(
                     ?.let(UUID::fromString)
             }.getOrNull()
 
-            val attempt = runCatching {
-                attemptId?.let {
-                    attemptRepository.getAttempt(it)
-                }
-            }.getOrNull()?.takeIf {
-                it.studentLogin.equals(
-                    login,
-                    ignoreCase = true
+            var retryKey by remember {
+                mutableIntStateOf(0)
+            }
+
+            var loadState by remember {
+                mutableStateOf<LoadState<Attempt?>>(
+                    LoadState.Loading
                 )
             }
 
-            ReportScreen(
-                attempt = attempt,
+            LaunchedEffect(attemptId, retryKey) {
+                loadState = LoadState.Loading
 
-                onRetryClick = { topicId ->
-                    navController.navigate(
-                        Routes.quiz(login, topicId)
-                    ) {
-                        popUpTo(Routes.REPORT) {
-                            inclusive = true
-                        }
+                loadState = if (attemptId == null) {
+                    LoadState.Failure(
+                        "Некорректный идентификатор попытки"
+                    )
+                } else {
+                    loadRepository {
+                        attemptRepository.getAttempt(attemptId)
                     }
-                },
-
-                onBackClick = {
-                    navController.popBackStack()
                 }
-            )
+            }
+
+            when (val result = loadState) {
+                LoadState.Loading -> LoadingScreen()
+
+                is LoadState.Failure -> ErrorScreen(
+                    message = result.message,
+                    onRetry = { retryKey++ },
+                    onBack = {
+                        navController.popBackStack()
+                    }
+                )
+
+                is LoadState.Success -> {
+                    val attempt = result.data?.takeIf {
+                        it.studentLogin.equals(
+                            login,
+                            ignoreCase = true
+                        )
+                    }
+
+                    ReportScreen(
+                        attempt = attempt,
+                        onRetryClick = { topicId ->
+                            navController.navigate(
+                                Routes.quiz(login, topicId)
+                            ) {
+                                popUpTo(Routes.REPORT) {
+                                    inclusive = true
+                                }
+                            }
+                        },
+                        onBackClick = {
+                            navController.popBackStack()
+                        }
+                    )
+                }
+            }
         }
 
         composable(Routes.ADMIN) {
@@ -264,11 +367,9 @@ fun QuizNavigation(
 
             AdminScreen(
                 viewModel = adminViewModel,
-
                 onBankClick = {
                     navController.navigate(Routes.ADMIN_BANK)
                 },
-
                 onLogoutClick = {
                     navController.popBackStack()
                 }
@@ -276,31 +377,147 @@ fun QuizNavigation(
         }
 
         composable(Routes.ADMIN_BANK) {
-            val topicsResult = runCatching {
-                questionRepository.getTopics()
+            var retryKey by remember {
+                mutableIntStateOf(0)
             }
 
-            val questionsResult = runCatching {
-                questionRepository.getQuestions()
+            var loadState by remember {
+                mutableStateOf<
+                        LoadState<Pair<List<Topic>, List<Question>>>
+                        >(LoadState.Loading)
             }
 
-            AdminBankScreen(
-                topics = topicsResult.getOrDefault(
-                    emptyList()
-                ),
+            LaunchedEffect(retryKey) {
+                loadState = LoadState.Loading
 
-                questions = questionsResult.getOrDefault(
-                    emptyList()
-                ),
-
-                errorMessage =
-                    topicsResult.exceptionOrNull()?.message
-                        ?: questionsResult.exceptionOrNull()?.message,
-
-                onBackClick = {
-                    navController.popBackStack()
+                loadState = loadRepository {
+                    questionRepository.getTopics() to
+                            questionRepository.getQuestions()
                 }
+            }
+
+            when (val result = loadState) {
+                LoadState.Loading -> LoadingScreen()
+
+                is LoadState.Failure -> ErrorScreen(
+                    message = result.message,
+                    onRetry = { retryKey++ },
+                    onBack = {
+                        navController.popBackStack()
+                    }
+                )
+
+                is LoadState.Success -> AdminBankScreen(
+                    topics = result.data.first,
+                    questions = result.data.second,
+                    onBackClick = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+        }
+    }
+}
+
+private sealed interface LoadState<out T> {
+
+    data object Loading : LoadState<Nothing>
+
+    data class Success<T>(
+        val data: T
+    ) : LoadState<T>
+
+    data class Failure(
+        val message: String
+    ) : LoadState<Nothing>
+}
+
+private suspend fun <T> loadRepository(
+    operation: () -> T
+): LoadState<T> {
+    return try {
+        val data = withContext(Dispatchers.IO) {
+            operation()
+        }
+
+        LoadState.Success(data)
+
+    } catch (error: CancellationException) {
+        throw error
+
+    } catch (error: Exception) {
+        LoadState.Failure(
+            "Не удалось загрузить данные. " +
+                    "Проверьте JSON-файлы приложения. " +
+                    (error.message ?: "")
+        )
+    }
+}
+
+@Composable
+private fun LoadingScreen() {
+    Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            CircularProgressIndicator()
+
+            Text(
+                text = "Загрузка данных...",
+                modifier = Modifier.padding(top = 16.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun ErrorScreen(
+    message: String,
+    onRetry: () -> Unit,
+    onBack: () -> Unit
+) {
+    Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = "Ошибка загрузки",
+                style = MaterialTheme.typography.headlineSmall
+            )
+
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+
+            Button(
+                onClick = onRetry,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 24.dp)
+            ) {
+                Text("Повторить")
+            }
+
+            OutlinedButton(
+                onClick = onBack,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Назад")
+            }
         }
     }
 }

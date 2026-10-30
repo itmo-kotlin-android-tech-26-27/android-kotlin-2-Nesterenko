@@ -2,6 +2,7 @@
 package com.example.quiz.ui.quiz
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.example.quiz.data.AttemptRepository
 import com.example.quiz.data.QuestionRepository
 import com.example.quiz.domain.AnswerRecord
@@ -13,9 +14,12 @@ import com.example.quiz.domain.OpenQ
 import com.example.quiz.domain.Question
 import com.example.quiz.engine.QuizEngine
 import com.example.quiz.engine.QuizState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class QuizViewModel(
     private val questionRepository: QuestionRepository,
@@ -28,69 +32,102 @@ class QuizViewModel(
     private var attempt: Attempt? = null
 
     private val _uiState = MutableStateFlow(
-        QuizUiState()
+        QuizUiState(
+            studentLogin = studentLogin,
+            topicId = topicId
+        )
     )
 
-    val uiState: StateFlow<QuizUiState> =
-        _uiState.asStateFlow()
+    val uiState = _uiState.asStateFlow()
 
     init {
-        startQuiz()
+        viewModelScope.launch {
+            startQuiz()
+        }
     }
 
-    private fun startQuiz() {
-        val topic = questionRepository
-            .getTopics()
-            .firstOrNull { it.id == topicId }
+    private suspend fun startQuiz() {
+        try {
+            val data = withContext(Dispatchers.IO) {
+                Triple(
+                    questionRepository.getTopics(),
+                    questionRepository.getQuestions(),
+                    questionRepository.getSettings()
+                )
+            }
 
-        if (topic == null) {
-            _uiState.value = QuizUiState(
-                studentLogin = studentLogin,
-                topicId = topicId,
-                errorMessage = "Тема не найдена"
+            val topic = data.first.firstOrNull {
+                it.id == topicId
+            }
+
+            if (topic == null) {
+                showLoadingError("Тема не найдена")
+                return
+            }
+
+            val questions = data.second.filter {
+                it.topicId == topic.id
+            }
+
+            if (questions.isEmpty()) {
+                showLoadingError(
+                    "В этой теме нет вопросов",
+                    topic.name
+                )
+                return
+            }
+
+            val settings = data.third
+
+            engine = QuizEngine(
+                topic = topic,
+                questions = questions,
+                settings = settings
             )
-            return
-        }
 
-        val questions = questionRepository
-            .getQuestions()
-            .filter { it.topicId == topic.id }
+            attempt = Attempt(
+                studentLogin = studentLogin,
+                topicId = topic.id,
+                topicName = topic.name
+            )
 
-        if (questions.isEmpty()) {
             _uiState.value = QuizUiState(
                 studentLogin = studentLogin,
                 topicId = topic.id,
                 topicName = topic.name,
+                currentLevel = 1,
                 maxLevel = topic.maxLevel,
-                errorMessage = "В этой теме нет вопросов"
+                remainingSeconds =
+                    settings.timeLimitMinutes * 60L
             )
-            return
+
+            loadNextQuestion()
+
+        } catch (error: CancellationException) {
+            throw error
+
+        } catch (error: Exception) {
+            engine = null
+            attempt = null
+
+            showLoadingError(
+                "Не удалось загрузить данные теста. " +
+                        "Проверьте файл с вопросами. " +
+                        (error.message ?: "")
+            )
         }
+    }
 
-        val settings = questionRepository.getSettings()
-
-        engine = QuizEngine(
-            topic = topic,
-            questions = questions,
-            settings = settings
-        )
-
-        attempt = Attempt(
-            studentLogin = studentLogin,
-            topicId = topic.id,
-            topicName = topic.name
-        )
-
+    private fun showLoadingError(
+        message: String,
+        topicName: String = ""
+    ) {
         _uiState.value = QuizUiState(
             studentLogin = studentLogin,
-            topicId = topic.id,
-            topicName = topic.name,
-            currentLevel = 1,
-            maxLevel = topic.maxLevel,
-            remainingSeconds = settings.timeLimitMinutes * 60L
+            topicId = topicId,
+            topicName = topicName,
+            errorMessage = message
         )
-
-        loadNextQuestion()
     }
 
     private fun loadNextQuestion() {
@@ -163,8 +200,8 @@ class QuizViewModel(
 
         try {
             val engineAnswer = convertAnswerForEngine(
-                question = question,
-                answer = selectedAnswer
+                question,
+                selectedAnswer
             )
 
             val isCorrect = currentEngine.answer(engineAnswer)
@@ -309,7 +346,6 @@ class QuizViewModel(
     private fun finishAttempt(status: AttemptStatus) {
         val currentAttempt = attempt ?: return
 
-        // Не сохраняем одну попытку повторно.
         if (_uiState.value.savedAttemptId != null) {
             return
         }
@@ -388,7 +424,6 @@ class QuizViewModel(
     ): String {
         return when (question) {
             is MultipleListQ -> question.correctAnswer
-
             is OpenQ -> question.correctAnswer
 
             is MatchParQuestion ->
