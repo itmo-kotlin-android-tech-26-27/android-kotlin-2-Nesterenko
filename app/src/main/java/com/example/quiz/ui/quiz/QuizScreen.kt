@@ -156,12 +156,28 @@ fun QuizScreen(
                     else -> true
                 }
 
-                Button(
-                    onClick = viewModel::submitAnswer,
-                    enabled = canSubmit,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Подтвердить ответ")
+                if (state.isAnswerSubmitted) {
+                    Text(
+                        text = "Ответ сохранён. Можно перейти к следующему вопросу.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = viewModel::nextQuestion,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Следующий вопрос")
+                    }
+                } else {
+                    Button(
+                        onClick = viewModel::submitAnswer,
+                        enabled = canSubmit,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Подтвердить ответ")
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))

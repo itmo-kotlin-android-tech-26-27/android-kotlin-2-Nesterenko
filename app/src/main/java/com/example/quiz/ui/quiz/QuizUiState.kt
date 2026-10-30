@@ -1,3 +1,4 @@
+
 package com.example.quiz.ui.quiz
 
 import com.example.quiz.domain.Question
@@ -11,6 +12,7 @@ data class QuizUiState(
     val remainingSeconds: Long = 0L,
     val currentQuestion: Question? = null,
     val answer: String = "",
+    val isAnswerSubmitted: Boolean = false,
     val isFinished: Boolean = false,
     val isInterrupted: Boolean = false,
     val isTimeExpired: Boolean = false,
