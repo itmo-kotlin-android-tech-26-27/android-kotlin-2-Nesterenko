@@ -1,4 +1,3 @@
-
 package com.example.quiz.ui.quiz
 
 import androidx.lifecycle.ViewModel
@@ -32,13 +31,15 @@ class QuizViewModel(
     private var attempt: Attempt? = null
 
     private val _uiState = MutableStateFlow(
-        QuizUiState(
-            studentLogin = studentLogin,
-            topicId = topicId
-        )
+        QuizUiState(studentLogin = studentLogin, topicId = topicId)
     )
-
     val uiState = _uiState.asStateFlow()
+
+    private val _isSaving = MutableStateFlow(false)
+    val isSaving = _isSaving.asStateFlow()
+
+    private val _saveError = MutableStateFlow<String?>(null)
+    val saveError = _saveError.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -56,24 +57,17 @@ class QuizViewModel(
                 )
             }
 
-            val topic = data.first.firstOrNull {
-                it.id == topicId
-            }
+            val topic = data.first.firstOrNull { it.id == topicId }
 
             if (topic == null) {
                 showLoadingError("Тема не найдена")
                 return
             }
 
-            val questions = data.second.filter {
-                it.topicId == topic.id
-            }
+            val questions = data.second.filter { it.topicId == topic.id }
 
             if (questions.isEmpty()) {
-                showLoadingError(
-                    "В этой теме нет вопросов",
-                    topic.name
-                )
+                showLoadingError("В этой теме нет вопросов", topic.name)
                 return
             }
 
@@ -97,23 +91,19 @@ class QuizViewModel(
                 topicName = topic.name,
                 currentLevel = 1,
                 maxLevel = topic.maxLevel,
-                remainingSeconds =
-                    settings.timeLimitMinutes * 60L
+                remainingSeconds = settings.timeLimitMinutes * 60L
             )
 
             loadNextQuestion()
 
         } catch (error: CancellationException) {
             throw error
-
         } catch (error: Exception) {
             engine = null
             attempt = null
-
             showLoadingError(
-                "Не удалось загрузить данные теста. " +
-                        "Проверьте файл с вопросами. " +
-                        (error.message ?: "")
+                "Не удалось загрузить данные теста: " +
+                    (error.message ?: "ошибка чтения JSON")
             )
         }
     }
@@ -132,7 +122,6 @@ class QuizViewModel(
 
     private fun loadNextQuestion() {
         val currentEngine = engine ?: return
-
         currentEngine.nextQuestion()
 
         when (val state = currentEngine.state) {
@@ -167,10 +156,7 @@ class QuizViewModel(
     }
 
     fun updateAnswer(answer: String) {
-        if (
-            _uiState.value.isFinished ||
-            _uiState.value.isAnswerSubmitted
-        ) {
+        if (_uiState.value.isFinished || _uiState.value.isAnswerSubmitted) {
             return
         }
 
@@ -182,28 +168,19 @@ class QuizViewModel(
 
     fun submitAnswer() {
         val state = _uiState.value
-
-        if (state.isFinished || state.isAnswerSubmitted) {
-            return
-        }
+        if (state.isFinished || state.isAnswerSubmitted) return
 
         val currentEngine = engine ?: return
         val question = state.currentQuestion ?: return
         val selectedAnswer = state.answer.trim()
 
         if (selectedAnswer.isBlank()) {
-            _uiState.value = state.copy(
-                errorMessage = "Введите ответ"
-            )
+            _uiState.value = state.copy(errorMessage = "Введите ответ")
             return
         }
 
         try {
-            val engineAnswer = convertAnswerForEngine(
-                question,
-                selectedAnswer
-            )
-
+            val engineAnswer = convertAnswerForEngine(question, selectedAnswer)
             val isCorrect = currentEngine.answer(engineAnswer)
 
             attempt?.addAnswer(
@@ -228,8 +205,7 @@ class QuizViewModel(
                 QuizState.Running -> {
                     _uiState.value = _uiState.value.copy(
                         isAnswerSubmitted = true,
-                        remainingSeconds =
-                            currentEngine.remainingSeconds,
+                        remainingSeconds = currentEngine.remainingSeconds,
                         errorMessage = null
                     )
                 }
@@ -239,28 +215,22 @@ class QuizViewModel(
 
         } catch (error: IllegalArgumentException) {
             _uiState.value = _uiState.value.copy(
-                errorMessage =
-                    error.message ?: "Некорректный ответ"
+                errorMessage = error.message ?: "Некорректный ответ"
             )
-
         } catch (error: IllegalStateException) {
             if (currentEngine.state == QuizState.TimeExpired) {
                 recordTimedOutQuestion()
                 finishAttempt(AttemptStatus.TIME_EXPIRED)
             } else {
                 _uiState.value = _uiState.value.copy(
-                    errorMessage =
-                        error.message ?: "Ошибка прохождения"
+                    errorMessage = error.message ?: "Ошибка прохождения"
                 )
             }
         }
     }
 
     fun nextQuestion() {
-        if (
-            !_uiState.value.isAnswerSubmitted ||
-            _uiState.value.isFinished
-        ) {
+        if (!_uiState.value.isAnswerSubmitted || _uiState.value.isFinished) {
             return
         }
 
@@ -283,11 +253,13 @@ class QuizViewModel(
     }
 
     fun interruptQuiz() {
-        engine?.interrupt()
+        if (_uiState.value.isFinished) return
 
-        if (attempt != null) {
-            finishAttempt(AttemptStatus.INTERRUPTED)
-        }
+        val currentEngine = engine ?: return
+        if (attempt == null) return
+
+        currentEngine.interrupt()
+        finishAttempt(AttemptStatus.INTERRUPTED)
     }
 
     fun canLeaveWithoutSaving(): Boolean {
@@ -296,13 +268,7 @@ class QuizViewModel(
 
     fun refreshTime() {
         val currentEngine = engine ?: return
-
-        if (
-            currentEngine.isFinished ||
-            _uiState.value.isFinished
-        ) {
-            return
-        }
+        if (currentEngine.isFinished || _uiState.value.isFinished) return
 
         val remaining = currentEngine.remainingSeconds
 
@@ -311,9 +277,7 @@ class QuizViewModel(
             recordTimedOutQuestion()
             finishAttempt(AttemptStatus.TIME_EXPIRED)
         } else {
-            _uiState.value = _uiState.value.copy(
-                remainingSeconds = remaining
-            )
+            _uiState.value = _uiState.value.copy(remainingSeconds = remaining)
         }
     }
 
@@ -321,11 +285,7 @@ class QuizViewModel(
         val question = _uiState.value.currentQuestion ?: return
         val currentAttempt = attempt ?: return
 
-        if (
-            currentAttempt.answers.any {
-                it.questionId == question.id
-            }
-        ) {
+        if (currentAttempt.answers.any { it.questionId == question.id }) {
             return
         }
 
@@ -346,50 +306,71 @@ class QuizViewModel(
     private fun finishAttempt(status: AttemptStatus) {
         val currentAttempt = attempt ?: return
 
-        if (_uiState.value.savedAttemptId != null) {
-            return
-        }
+        if (_uiState.value.isFinished) return
 
-        if (
-            currentAttempt.status ==
-            AttemptStatus.IN_PROGRESS
-        ) {
+        if (currentAttempt.status == AttemptStatus.IN_PROGRESS) {
             currentAttempt.finish(status)
         }
 
-        try {
-            attemptRepository.addAttempt(currentAttempt)
+        _uiState.value = _uiState.value.copy(
+            isFinished = true,
+            isInterrupted = currentAttempt.status == AttemptStatus.INTERRUPTED,
+            isTimeExpired = currentAttempt.status == AttemptStatus.TIME_EXPIRED,
+            remainingSeconds = if (currentAttempt.status == AttemptStatus.TIME_EXPIRED) {
+                0L
+            } else {
+                _uiState.value.remainingSeconds
+            },
+            currentQuestion = null,
+            answer = "",
+            isAnswerSubmitted = false,
+            errorMessage = null
+        )
 
-            _uiState.value = _uiState.value.copy(
-                isFinished = true,
-                isInterrupted =
-                    currentAttempt.status ==
-                            AttemptStatus.INTERRUPTED,
-                isTimeExpired =
-                    currentAttempt.status ==
-                            AttemptStatus.TIME_EXPIRED,
-                remainingSeconds =
-                    if (
-                        currentAttempt.status ==
-                        AttemptStatus.TIME_EXPIRED
-                    ) {
-                        0L
-                    } else {
-                        _uiState.value.remainingSeconds
-                    },
-                currentQuestion = null,
-                answer = "",
-                isAnswerSubmitted = false,
-                savedAttemptId = currentAttempt.id.toString(),
-                errorMessage = null
-            )
+        saveFinishedAttempt()
+    }
 
-        } catch (error: Exception) {
-            _uiState.value = _uiState.value.copy(
-                errorMessage =
+    fun retrySave() {
+        if (!_uiState.value.isFinished || _saveError.value == null) return
+        saveFinishedAttempt()
+    }
+
+    private fun saveFinishedAttempt() {
+        val currentAttempt = attempt ?: return
+
+        if (
+            currentAttempt.status == AttemptStatus.IN_PROGRESS ||
+            _uiState.value.savedAttemptId != null ||
+            _isSaving.value
+        ) {
+            return
+        }
+
+        // Устанавливаем флаг до запуска корутины, чтобы исключить второй запрос.
+        _isSaving.value = true
+        _saveError.value = null
+
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    attemptRepository.addAttempt(currentAttempt)
+                }
+
+                // Переход к отчёту разрешён только после успешной записи.
+                _uiState.value = _uiState.value.copy(
+                    savedAttemptId = currentAttempt.id.toString(),
+                    errorMessage = null
+                )
+
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _saveError.value =
                     "Не удалось сохранить попытку: " +
-                            (error.message ?: "ошибка файла")
-            )
+                        (error.message ?: "ошибка записи JSON")
+            } finally {
+                _isSaving.value = false
+            }
         }
     }
 
@@ -400,13 +381,9 @@ class QuizViewModel(
         return when (question) {
             is MultipleListQ -> {
                 val index = question.options.indexOf(answer)
-
                 if (index < 0) {
-                    throw IllegalArgumentException(
-                        "Выберите вариант ответа"
-                    )
+                    throw IllegalArgumentException("Выберите вариант ответа")
                 }
-
                 (index + 1).toString()
             }
 
@@ -416,20 +393,20 @@ class QuizViewModel(
                 .replace(Regex("\\s*,\\s*"), " ")
                 .replace(Regex("\\s+"), " ")
                 .trim()
+
+            else -> throw IllegalArgumentException("Неизвестный тип вопроса")
         }
     }
 
-    private fun correctAnswerText(
-        question: Question
-    ): String {
+    private fun correctAnswerText(question: Question): String {
         return when (question) {
             is MultipleListQ -> question.correctAnswer
             is OpenQ -> question.correctAnswer
+            is MatchParQuestion -> question.pairs.entries.joinToString(", ") {
+                "${it.key} — ${it.value}"
+            }
 
-            is MatchParQuestion ->
-                question.pairs.entries.joinToString(", ") {
-                    "${it.key} — ${it.value}"
-                }
+            else -> ""
         }
     }
 }

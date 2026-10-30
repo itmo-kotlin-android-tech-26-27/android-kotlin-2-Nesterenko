@@ -1,4 +1,3 @@
-
 package com.example.quiz.ui.quiz
 
 import androidx.activity.compose.BackHandler
@@ -48,10 +47,16 @@ fun QuizScreen(
     onQuizInterrupted: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
+    val saveError by viewModel.saveError.collectAsStateWithLifecycle()
 
     BackHandler {
-        viewModel.interruptQuiz()
-        onQuizInterrupted()
+        if (viewModel.canLeaveWithoutSaving()) {
+            onQuizInterrupted()
+        } else {
+            // Не уходим со страницы до успешного сохранения результата.
+            viewModel.interruptQuiz()
+        }
     }
 
     LaunchedEffect(state.isFinished) {
@@ -61,9 +66,13 @@ fun QuizScreen(
         }
     }
 
-    LaunchedEffect(state.isFinished, state.isInterrupted) {
-        if (state.isFinished && !state.isInterrupted) {
-            onQuizFinished()
+    LaunchedEffect(state.savedAttemptId) {
+        if (state.savedAttemptId != null) {
+            if (state.isInterrupted) {
+                onQuizInterrupted()
+            } else {
+                onQuizFinished()
+            }
         }
     }
 
@@ -183,34 +192,70 @@ fun QuizScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedButton(
-                    onClick = {
-                        viewModel.interruptQuiz()
-                        onQuizInterrupted()
-                    },
+                    onClick = viewModel::interruptQuiz,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Прервать тест")
                 }
             } else {
-                Text(
-                    text = state.errorMessage
-                        ?: if (state.isFinished) {
-                            "Тест завершён"
-                        } else {
-                            "Загрузка вопроса..."
+                when {
+                    isSaving -> {
+                        Text("Сохраняем результат теста...")
+                    }
+
+                    saveError != null -> {
+                        Text(
+                            text = saveError.orEmpty(),
+                            color = MaterialTheme.colorScheme.error
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = viewModel::retrySave,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Повторить сохранение")
                         }
-                )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Результат ещё не записан. " +
+                                "Оставайтесь на экране до успешного сохранения.",
+                            modifier = Modifier.padding(top = 12.dp)
+                        )
+                    }
 
-                Button(
-                    onClick = {
-                        viewModel.interruptQuiz()
-                        onQuizInterrupted()
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Вернуться к темам")
+                    state.isFinished -> {
+                        Text(
+                            if (state.savedAttemptId != null) {
+                                "Открываем отчёт..."
+                            } else {
+                                "Подготовка сохранения..."
+                            }
+                        )
+                    }
+
+                    else -> {
+                        Text(
+                            text = state.errorMessage ?: "Загрузка вопроса..."
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = {
+                                // Пока попытка не создана, можно вернуться без записи.
+                                if (viewModel.canLeaveWithoutSaving()) {
+                                    onQuizInterrupted()
+                                } else {
+                                    viewModel.interruptQuiz()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Вернуться к темам")
+                        }
+                    }
                 }
             }
         }
